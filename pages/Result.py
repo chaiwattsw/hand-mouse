@@ -55,7 +55,7 @@ def result_page():
 
     webrtc_streamer(
         key="hand_gesture_volume_control", 
-        mode=WebRtcMode.SENDRECV,
+        mode="SENDRECV",
         rtc_configuration={
         "iceServers": get_ice_servers(),
         "iceTransportPolicy": "relay",
