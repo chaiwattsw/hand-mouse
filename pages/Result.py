@@ -2,7 +2,7 @@ import mediapipe as mp
 import cv2
 import subprocess
 import streamlit as st
-from streamlit_webrtc import webrtc_streamer
+from streamlit_webrtc import WebRtcMode, webrtc_streamer
 import av
 
 st.set_page_config(page_title="Result")
@@ -21,9 +21,10 @@ def video_frame_callback(frame):
     image = frame.to_ndarray(format="bgr24")
     results = hands.process(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
 
+    current_volume = 50  # Initialize with a default volume value
+
     if results.multi_hand_landmarks:
         for hand_landmarks in results.multi_hand_landmarks:
-            print(hand_landmarks)
             mp_drawing.draw_landmarks(image, hand_landmarks, mp_hands.HAND_CONNECTIONS)
 
             # Get finger landmarks
@@ -38,31 +39,31 @@ def video_frame_callback(frame):
 
             # Adjust volume based on hand gesture
             if distance < pinch_threshold:
-                set_volume(50)  # Set volume to a specific level (adjust as needed)
+                current_volume -= 1 if current_volume > 0 else 0  # Decrease volume
             else:
-                set_volume(100)  # Set a different volume level for apart fingers
+                current_volume += 1 if current_volume < 100 else 0  # Increase volume
 
-    return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            # Set volume using subprocess
+            set_volume(current_volume)
 
-   
+            # Display current volume level in the frame
+            cv2.putText(image, f"Volume: {current_volume}", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
 
+    return av.VideoFrame.from_ndarray(image, format="bgr24")
 
 def result_page():
     st.title("Hand Gesture Volume Control - Result")
     st.write("Enable the hand gesture recognition to control the volume.")
     st.write("Click the button below to start recognizing hand gestures for volume control.")
 
-
     webrtc_streamer(
         key="hand_gesture_volume_control", 
-        mode="SENDRECV",
-        rtc_configuration={
-        "iceServers": get_ice_servers(),
-        "iceTransportPolicy": "relay",
-        },
+        mode=WebRtcMode.SENDRECV,
         video_frame_callback=video_frame_callback,
         media_stream_constraints={"video": True, "audio": False},
-        async_processing=True,
-        )
+        rtc_configuration={
+        "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+        },
+    )
 
 result_page()
