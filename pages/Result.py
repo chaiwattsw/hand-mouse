@@ -58,7 +58,7 @@ def result_page():
 
     webrtc_streamer(
         key="hand_gesture_volume_control", 
-        # mode=WebRtcMode.SENDRECV,
+        mode=WebRtcMode.RECVONLY,
         video_frame_callback=video_frame_callback,
         media_stream_constraints={"video": True, "audio": False},
         rtc_configuration={
