@@ -22,24 +22,43 @@ def process_video_frame(image):
     pinch_threshold = 0.05  # Threshold to differentiate touch from apart
 
     if results.multi_hand_landmarks:
-        for hand_landmarks in results.multi_hand_landmarks:
-            mp_drawing.draw_landmarks(image, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+        # Assume only one hand in the frame for simplicity
+        hand_landmarks = results.multi_hand_landmarks[0]
 
-            thumb_tip = hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_TIP]
-            index_tip = hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP]
-            thumb_x, thumb_y = thumb_tip.x, thumb_tip.y
-            index_x, index_y = index_tip.x, index_tip.y
+        # Get landmarks for thumb and index finger
+        thumb_tip = hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_TIP]
+        index_tip = hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP]
+        thumb_x, thumb_y = thumb_tip.x, thumb_tip.y
+        index_x, index_y = index_tip.x, index_tip.y
 
-            distance = ((thumb_x - index_x) ** 2 + (thumb_y - index_y) ** 2) ** 0.5
+        # Calculate distance between thumb and index finger landmarks
+        distance = ((thumb_x - index_x) ** 2 + (thumb_y - index_y) ** 2) ** 0.5
 
-            if distance > pinch_threshold:
-                volume -= 1 if volume > 0 else 0
-            else:
-                volume += 1 if volume < 100 else 0
+        # Get landmarks for additional fingers
+        middle_tip = hand_landmarks.landmark[mp_hands.HandLandmark.MIDDLE_FINGER_TIP]
+        ring_tip = hand_landmarks.landmark[mp_hands.HandLandmark.RING_FINGER_TIP]
+        pinky_tip = hand_landmarks.landmark[mp_hands.HandLandmark.PINKY_TIP]
 
-            set_volume(volume)
+        # Check for hand gesture to increase volume (open hand)
+        if (
+            thumb_y < middle_tip.y < ring_tip.y < pinky_tip.y and
+            thumb_x < index_x and distance > pinch_threshold
+        ):
+            volume += 1 if volume < 100 else 0  # Increase volume when open hand detected
 
-            cv2.putText(image, f"Volume: {volume}", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+        # Check for hand gesture to decrease volume (closed hand)
+        elif (
+            thumb_y > index_y and thumb_x < index_x and distance < pinch_threshold
+        ):
+            volume -= 1 if volume > 0 else 0  # Decrease volume when closed hand (fist) detected
+
+        set_volume(volume)  # Set the adjusted volume level
+
+        # Draw hand landmarks and skeleton on the image
+        mp_drawing.draw_landmarks(image, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+
+        # Display current volume level in the frame
+        cv2.putText(image, f"Volume: {volume}", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
 
     return image
 
@@ -58,10 +77,10 @@ def result_page():
         mode=WebRtcMode.SENDRECV,
         video_frame_callback=video_frame_callback,
         media_stream_constraints={"video": True, "audio": False},
-        async_processing=True,
-        rtc_configuration={
-        "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
-        }
+        async_processing=True
+        # rtc_configuration={
+        # "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+        # }
     )
 
 result_page()
