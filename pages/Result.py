@@ -1,86 +1,82 @@
 import mediapipe as mp
 import numpy as np
 import cv2
-import subprocess
 import streamlit as st
-from streamlit_webrtc import WebRtcMode, webrtc_streamer
+from streamlit_webrtc import (WebRtcMode, webrtc_streamer)
 import av
+import math
+from ctypes import cast, POINTER
+from comtypes import CLSCTX_ALL
+from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
 
 # Initialize MediaPipe hands module
-mp_hands = mp.solutions.hands
-hands = mp_hands.Hands()
 mp_drawing = mp.solutions.drawing_utils
+mp_drawing_styles = mp.solutions.drawing_styles
+mp_hands = mp.solutions.hands
 
-# Function to set volume using subprocess
-def set_volume(volume):
-    subprocess.run(["osascript", "-e", f"set volume output volume {volume}"])
+# Volume Control Library Usage
+devices = AudioUtilities.GetSpeakers()
+interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+volume = cast(interface, POINTER(IAudioEndpointVolume))
+volRange = volume.GetVolumeRange()
+minVol, maxVol, volBar, volPer = volRange[0], volRange[1], 400, 0
 
-def process_video_frame(image):
-    results = hands.process(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+# Function to control volume based on hand gestures
+def control_volume(hand_landmarks):
+    if hand_landmarks:
+        myHand = hand_landmarks[0]
+        lmList = []
+        for id, lm in enumerate(myHand.landmark):
+            h, w, c = image.shape
+            cx, cy = int(lm.x * w), int(lm.y * h)
+            lmList.append([id, cx, cy])
 
-    volume = 50  # Initial volume level
-    pinch_threshold = 0.05  # Threshold to differentiate touch from apart
+        if len(lmList) != 0:
+            x1, y1 = lmList[4][1], lmList[4][2]
+            x2, y2 = lmList[8][1], lmList[8][2]
 
-    if results.multi_hand_landmarks:
-        # Assume only one hand in the frame for simplicity
-        hand_landmarks = results.multi_hand_landmarks[0]
+            length = math.hypot(x2 - x1, y2 - y1)
+            if length < 50:
+                vol = np.interp(length, [50, 220], [minVol, maxVol])
+                volume.SetMasterVolumeLevel(vol, None)
+                volBar = np.interp(length, [50, 220], [400, 150])
+                volPer = np.interp(length, [50, 220], [0, 100])
 
-        # Get landmarks for thumb and index finger
-        thumb_tip = hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_TIP]
-        index_tip = hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP]
-        thumb_x, thumb_y = thumb_tip.x, thumb_tip.y
-        index_x, index_y = index_tip.x, index_tip.y
+                # Display volume level and bar here using Streamlit components
 
-        # Calculate distance between thumb and index finger landmarks
-        distance = ((thumb_x - index_x) ** 2 + (thumb_y - index_y) ** 2) ** 0.5
+# Streamlit application
+def main():
+    st.title("Hand Gesture Volume Control - Streamlit")
+    st.write("Enable hand gesture recognition to control the volume.")
+    st.write("Click the button below to start recognizing hand gestures.")
 
-        # Get landmarks for additional fingers
-        middle_tip = hand_landmarks.landmark[mp_hands.HandLandmark.MIDDLE_FINGER_TIP]
-        ring_tip = hand_landmarks.landmark[mp_hands.HandLandmark.RING_FINGER_TIP]
-        pinky_tip = hand_landmarks.landmark[mp_hands.HandLandmark.PINKY_TIP]
-
-        # Check for hand gesture to increase volume (open hand)
-        if (
-            thumb_y < middle_tip.y < ring_tip.y < pinky_tip.y and
-            thumb_x < index_x and distance > pinch_threshold
-        ):
-            volume += 1 if volume < 100 else 0  # Increase volume when open hand detected
-
-        # Check for hand gesture to decrease volume (closed hand)
-        elif (
-            thumb_y > index_y and thumb_x < index_x and distance < pinch_threshold
-        ):
-            volume -= 1 if volume > 0 else 0  # Decrease volume when closed hand (fist) detected
-
-        set_volume(volume)  # Set the adjusted volume level
-
-        # Draw hand landmarks and skeleton on the image
-        mp_drawing.draw_landmarks(image, hand_landmarks, mp_hands.HAND_CONNECTIONS)
-
-        # Display current volume level in the frame
-        cv2.putText(image, f"Volume: {volume}", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-
-    return image
-
-def video_frame_callback(frame):
-    image = frame.to_ndarray(format="bgr24")
-    processed_image = process_video_frame(image)
-    return av.VideoFrame.from_ndarray(processed_image, format="bgr24")
-
-def result_page():
-    st.title("Hand Gesture Volume Control - Result")
-    st.write("Enable the hand gesture recognition to control the volume.")
-    st.write("Click the button below to start recognizing hand gestures for volume control.")
-
-    webrtc_streamer(
-        key="hand_gesture_volume_control", 
+    webrtc_ctx = webrtc_streamer(
+        key="hand_gesture_volume_control",
         mode=WebRtcMode.SENDRECV,
-        video_frame_callback=video_frame_callback,
-        media_stream_constraints={"video": True, "audio": False},
         async_processing=True,
-        rtc_configuration={
-        "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
-        }
     )
 
-result_page()
+    if webrtc_ctx.video_receiver:
+        while True:
+            try:
+                frame = webrtc_ctx.video_receiver.get_frame(timeout=1)
+                if frame is None:
+                    continue
+
+                image = frame.to_ndarray(format="bgr24")
+                with mp_hands.Hands(
+                    model_complexity=0,
+                    min_detection_confidence=0.5,
+                    min_tracking_confidence=0.5) as hands:
+                    results = hands.process(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+
+                    if results.multi_hand_landmarks:
+                        control_volume(results.multi_hand_landmarks)
+                    
+                    # Display the image in Streamlit
+                    st.image(image, channels="BGR")
+            except av.VideoFrameTimeout:
+                print("Timeout for video frame")
+
+if __name__ == "__main__":
+    main()

@@ -3,3 +3,6 @@ opencv-python
 streamlit_webrtc   
 streamlit-webrtc                                    
 mediapipe==0.8.9.1
+comtypes
+numpy
+pycaw
