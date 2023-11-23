@@ -3,7 +3,7 @@ import numpy as np
 import cv2
 import subprocess
 import streamlit as st
-from streamlit_webrtc import WebRtcMode, webrtc_streamer
+from streamlit_webrtc import (WebRtcMode, webrtc_streamer)
 import av
 
 # Initialize MediaPipe hands module
