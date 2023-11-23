@@ -6,8 +6,6 @@ import streamlit as st
 from streamlit_webrtc import WebRtcMode, webrtc_streamer
 import av
 
-st.set_page_config(page_title="Result")
-
 # Initialize MediaPipe hands module
 mp_hands = mp.solutions.hands
 hands = mp_hands.Hands()
@@ -17,40 +15,38 @@ mp_drawing = mp.solutions.drawing_utils
 def set_volume(volume):
     subprocess.run(["osascript", "-e", f"set volume output volume {volume}"])
 
-# Hand gesture recognition and volume control
+def process_video_frame(image):
+    results = hands.process(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+
+    volume = 50  # Initial volume level
+    pinch_threshold = 0.05  # Threshold to differentiate touch from apart
+
+    if results.multi_hand_landmarks:
+        for hand_landmarks in results.multi_hand_landmarks:
+            mp_drawing.draw_landmarks(image, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+
+            thumb_tip = hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_TIP]
+            index_tip = hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP]
+            thumb_x, thumb_y = thumb_tip.x, thumb_tip.y
+            index_x, index_y = index_tip.x, index_tip.y
+
+            distance = ((thumb_x - index_x) ** 2 + (thumb_y - index_y) ** 2) ** 0.5
+
+            if distance > pinch_threshold:
+                volume -= 1 if volume > 0 else 0
+            else:
+                volume += 1 if volume < 100 else 0
+
+            set_volume(volume)
+
+            cv2.putText(image, f"Volume: {volume}", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+
+    return image
+
 def video_frame_callback(frame):
-     image = frame.to_ndarray(format="bgr24")
-     results = hands.process(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-
-     volume = 50  # Initial volume level
-     pinch_threshold = 0.05  # Threshold to differentiate touch from apart
-
-     if results.multi_hand_landmarks:
-            for hand_landmarks in results.multi_hand_landmarks:
-                mp_drawing.draw_landmarks(image, hand_landmarks, mp_hands.HAND_CONNECTIONS)
-
-                # Get finger landmarks
-                thumb_tip = hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_TIP]
-                index_tip = hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP]
-                thumb_x, thumb_y = thumb_tip.x, thumb_tip.y
-                index_x, index_y = index_tip.x, index_tip.y
-
-                # Calculate distance between thumb and index finger landmarks
-                distance = ((thumb_x - index_x) ** 2 + (thumb_y - index_y) ** 2) ** 0.5
-
-                # Adjust volume based on hand gesture distance
-                if distance > pinch_threshold:  # Check if the distance is above the threshold
-                    volume -= 1 if volume > 0 else 0  # Decrease volume when distance is far
-                else:
-                    volume += 1 if volume < 100 else 0  # Increase volume when distance is near
-
-                # Set volume using subprocess
-                set_volume(volume)
-
-                # Display current volume level in the frame
-                cv2.putText(image, f"Volume: {volume}", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-
-     return av.VideoFrame.from_ndarray(image, format="bgr24")
+    image = frame.to_ndarray(format="bgr24")
+    processed_image = process_video_frame(image)
+    return av.VideoFrame.from_ndarray(processed_image, format="bgr24")
 
 def result_page():
     st.title("Hand Gesture Volume Control - Result")
@@ -63,7 +59,7 @@ def result_page():
         video_frame_callback=video_frame_callback,
         media_stream_constraints={"video": True, "audio": False},
         async_processing=True,
-         rtc_configuration={
+        rtc_configuration={
         "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
         }
     )
